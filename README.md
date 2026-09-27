@@ -152,6 +152,10 @@ require("tiny-cmdline").setup({
     },
 
     -- Optional callback invoked after every reposition
+    -- Set 'cmdheight' to 0 so only the centered window shows
+    -- false leaves 'cmdheight' as you set it; the window still centers
+    manage_cmdheight = true,
+
     on_reposition = nil,
 })
 ```
@@ -181,6 +185,8 @@ Cmdline types listed in `native_types` (search by default) are pinned to the bot
 
 The window position is also updated on `VimResized` and `TabEnter` to stay correctly centered after layout changes.
 
+nvim-cmp anchors its cmdline menu to the last screen row and does not read `vim.g.ui_cmdline_pos`, so the plugin moves that anchor under the centered window while it is shown.
+
 ## Integrations
 
 tiny-cmdline is compatible with the most common completion plugins. The table below summarises compatibility details for each.
@@ -205,6 +211,7 @@ require("tiny-cmdline").setup({
 
 ## Troubleshooting
 
+- **Keep your `cmdheight`**: set `manage_cmdheight = false`. The window still centers, and messages, pending keys, and `recording @a` stay on the bottom row.
 - **Cmdline stays at the bottom**: Ensure `vim.o.cmdheight = 0` is set before the plugin initializes (use `init` in lazy.nvim, or set it early in your config).
 - **Completion menu misaligned**: Tune `menu_col_offset` to match your border/padding.
 - **Border doesn't match the rest of Neovim**: Leave `border = nil` to inherit `vim.o.winborder`.

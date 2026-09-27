@@ -39,6 +39,7 @@ M.adapters = {
 ---@field menu_col_offset integer Completion menu offset from the window's left inner edge
 ---@field native_types string[] Types shown at the bottom instead of centered (e.g. "/", "?")
 ---@field title TinyCmdlineTitleConfig
+---@field manage_cmdheight boolean Set 'cmdheight' to 0; false leaves it as the user set it
 ---@field on_reposition fun()|nil Called after every reposition
 M.config = {
   width = {
@@ -69,6 +70,10 @@ M.config = {
       {                                         title = " CmdLine " },
     },
   },
+  -- Set 'cmdheight' to 0 so only the centered window shows. false leaves
+  -- 'cmdheight' alone: the window still centers, and the row the user keeps at
+  -- the bottom stays empty while typing.
+  manage_cmdheight = true,
   on_reposition = nil,
 }
 
@@ -101,6 +106,10 @@ local original_ui_cmdline_pos = nil ---@type table|nil
 local cmd_win_saved = nil ---@type table|nil
 local ui2 = nil ---@type table|nil
 local applied_title = nil ---@type string|nil
+-- Screen position (0-based) of the line below the centered window and of the
+-- column holding its prompt; nil while the cmdline is at the bottom.
+local cmp_anchor = nil ---@type {row: integer, col: integer}|nil
+local cmp_patched = false
 
 local function type_matches(filter, t)
   if filter == nil then
@@ -156,7 +165,27 @@ local function get_cmd_win()
   return (win and vim.api.nvim_win_is_valid(win)) and win or nil
 end
 
+-- nvim-cmp anchors its cmdline menu to the last screen row and never reads
+-- vim.g.ui_cmdline_pos. Move that anchor under the centered window and keep
+-- cmp's own column math, so the menu opens where the typing is.
+local function patch_cmp()
+  local api = package.loaded["cmp.utils.api"]
+  if cmp_patched or not api then
+    return
+  end
+  cmp_patched = true
+  local get_screen_cursor = api.get_screen_cursor
+  api.get_screen_cursor = function()
+    local pos = get_screen_cursor()
+    if cmp_anchor and api.is_cmdline_mode() then
+      return { cmp_anchor.row, cmp_anchor.col + pos[2] }
+    end
+    return pos
+  end
+end
+
 local function reposition()
+  cmp_anchor = nil
   if not cmdline_type then
     return
   end
@@ -227,6 +256,8 @@ local function reposition()
     applied_title = title
   end
   vim.g.ui_cmdline_pos = { row + content_height + b * 2, col + b + M.config.menu_col_offset } -- blink.cmp / nvim-cmp anchor
+  cmp_anchor = { row = row + content_height + b * 2, col = col + b }
+  patch_cmp()
 end
 
 local wrapped = false
@@ -247,7 +278,11 @@ local function wrap_cmdline_show()
 
     -- search types need cmdheight=1 for stable IncSearch rendering
     local is_search = cmdline_type == "/" or cmdline_type == "?"
-    if not is_search and not vim.tbl_contains(M.config.native_types, cmdline_type) then
+    if
+      M.config.manage_cmdheight
+      and not is_search
+      and not vim.tbl_contains(M.config.native_types, cmdline_type)
+    then
       set_cmdheight_0()
     end
     reposition()
@@ -299,6 +334,7 @@ function M.setup(opts)
     callback = function()
       cmdline_type = nil
       applied_title = nil
+      cmp_anchor = nil
       vim.g.ui_cmdline_pos = original_ui_cmdline_pos
 
       local win = get_cmd_win()
@@ -309,7 +345,9 @@ function M.setup(opts)
       end
 
       -- defer so ui2's OptionSet doesn't re-bump cmdheight after leaving search/native types
-      vim.schedule(set_cmdheight_0)
+      if M.config.manage_cmdheight then
+        vim.schedule(set_cmdheight_0)
+      end
     end,
   })
 
